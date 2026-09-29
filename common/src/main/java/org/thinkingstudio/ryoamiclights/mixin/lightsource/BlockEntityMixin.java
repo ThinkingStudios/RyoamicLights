@@ -13,6 +13,7 @@ package org.thinkingstudio.ryoamiclights.mixin.lightsource;
 import org.thinkingstudio.ryoamiclights.DynamicLightSource;
 import org.thinkingstudio.ryoamiclights.RyoamicLights;
 import org.thinkingstudio.ryoamiclights.api.DynamicLightHandlers;
+import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.MinecraftClient;
@@ -166,7 +167,8 @@ public abstract class BlockEntityMixin implements DynamicLightSource {
 	@Override
 	public void ryoamiclights$scheduleTrackedChunksRebuild(@NotNull WorldRenderer renderer) {
 		if (this.world == MinecraftClient.getInstance().world)
-			for (long pos : this.ryoamiclights$trackedLitChunkPos) {
+			for (LongIterator iterator = this.ryoamiclights$trackedLitChunkPos.iterator(); iterator.hasNext(); ) {
+				long pos = iterator.nextLong();
 				RyoamicLights.scheduleChunkRebuild(renderer, pos);
 			}
 	}
