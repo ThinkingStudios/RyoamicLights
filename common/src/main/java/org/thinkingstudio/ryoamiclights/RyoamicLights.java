@@ -34,6 +34,8 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -52,10 +54,27 @@ public class RyoamicLights {
 	private static final double MAX_RADIUS = 7.75;
 	private static final double MAX_RADIUS_SQUARED = MAX_RADIUS * MAX_RADIUS;
 	private static RyoamicLights INSTANCE;
+	// Whether a class keeps Object's equals and hashCode, so that a set lookup can only match an instance that was added.
+	// Looked up with method handles since reflection would load the types used by every public method of the class.
+	private static final ClassValue<Boolean> COMPARES_BY_IDENTITY = new ClassValue<>() {
+		@Override
+		protected Boolean computeValue(Class<?> type) {
+			try {
+				var lookup = MethodHandles.publicLookup();
+				var equals = lookup.revealDirect(lookup.findVirtual(type, "equals", MethodType.methodType(boolean.class, Object.class))).getDeclaringClass();
+				var hashCode = lookup.revealDirect(lookup.findVirtual(type, "hashCode", MethodType.methodType(int.class))).getDeclaringClass();
+				return equals == Object.class && hashCode == Object.class;
+			} catch (Throwable t) {
+				return false;
+			}
+		}
+	};
 	public final Logger logger = LogManager.getLogger(NAMESPACE);
 	public final DynamicLightsConfig config = new DynamicLightsConfig(this);
 	private final Set<DynamicLightSource> dynamicLightSources = new HashSet<>();
 	private final ReentrantReadWriteLock lightSourcesLock = new ReentrantReadWriteLock();
+	// Set before the first block entity is added to the light sources and never cleared.
+	private volatile boolean blockEntityLightSourceAdded = false;
 	private long lastUpdate = System.currentTimeMillis();
 	private int lastUpdateCount = 0;
 
@@ -206,6 +225,8 @@ public class RyoamicLights {
 			return;
 		if (this.containsLightSource(lightSource))
 			return;
+		if (lightSource instanceof BlockEntity)
+			this.blockEntityLightSourceAdded = true;
 		this.lightSourcesLock.writeLock().lock();
 		this.dynamicLightSources.add(lightSource);
 		this.lightSourcesLock.writeLock().unlock();
@@ -219,6 +240,9 @@ public class RyoamicLights {
 	 */
 	public boolean containsLightSource(@NotNull DynamicLightSource lightSource) {
 		if (!lightSource.ryoamicLights$getDynamicLightWorld().isClient())
+			return false;
+		// While no block entity has been added, the set cannot contain this one and the lock is not needed.
+		if (!this.blockEntityLightSourceAdded && lightSource instanceof BlockEntity && COMPARES_BY_IDENTITY.get(lightSource.getClass()))
 			return false;
 
 		boolean result;
